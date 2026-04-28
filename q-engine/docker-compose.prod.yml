@@ -1,0 +1,112 @@
+# ---------------------------------------------------------------------------
+# Production compose — full stack on a single VPS.
+#   db      → Postgres + pgvector
+#   api     → q-engine NestJS API (built from Dockerfile)
+#   ollama  → self-hosted LLM, OpenAI-compatible API
+#   caddy   → TLS terminator + reverse proxy (auto Let's Encrypt)
+#
+# Bring it up with:
+#   cp .env.example .env.production         # then edit it
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+# ---------------------------------------------------------------------------
+services:
+  db:
+    image: ankane/pgvector:latest
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - internal
+    # Healthcheck: the OpenAI-compatible /v1/models endpoint should respond.
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_SYNCHRONIZE: "false"
+      DB_MIGRATIONS_RUN: "true"
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      LLM_BASE_URL: http://ollama:11434/v1
+      LLM_API_KEY: not-needed
+      LLM_MODEL: ${LLM_MODEL:-llama3.1:8b}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.4}
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-120000}
+      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-2}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
+      THROTTLE_TTL: ${THROTTLE_TTL:-60}
+      THROTTLE_LIMIT: ${THROTTLE_LIMIT:-120}
+    volumes:
+      - api_uploads:/app/uploads
+    networks:
+      - internal
+      - web
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
+    networks:
+      - web
+
+networks:
+  internal:
+    driver: bridge
+  web:
+    driver: bridge
+
+volumes:
+  db_data:
+  ollama_data:
+  api_uploads:
+  caddy_data:
+  caddy_config:

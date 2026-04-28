@@ -1,0 +1,24 @@
+# ---------------------------------------------------------------------------
+# Local development compose — just the database.
+# The API is run on the host with `npm run start:dev` so you get hot reload,
+# and the LLM runs on your host via LM Studio.
+# Bring it up with: docker compose up -d
+# ---------------------------------------------------------------------------
+services:
+  db:
+    image: ankane/pgvector:latest
+    container_name: qcraft-db-dev
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-pass123}
+      POSTGRES_DB: ${DB_NAME:-postgres}
+    volumes:
+      - ./qDatabase:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

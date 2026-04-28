@@ -1,0 +1,38 @@
+# ---------------------------------------------------------------------------
+# Caddy reverse proxy — automatic HTTPS via Let's Encrypt.
+# DOMAIN and LETSENCRYPT_EMAIL come from .env.production.
+# ---------------------------------------------------------------------------
+
+{
+    email {$LETSENCRYPT_EMAIL}
+    # Persistent state lives in the caddy_data volume.
+}
+
+{$DOMAIN} {
+    encode zstd gzip
+
+    # File upload limit (must match MAX_UPLOAD_MB in the API).
+    request_body {
+        max_size 50MB
+    }
+
+    # Forward client IP / scheme / host headers so NestJS sees the real client.
+    reverse_proxy api:3000 {
+        header_up X-Real-IP {remote}
+        header_up X-Forwarded-For {remote}
+        header_up X-Forwarded-Proto {scheme}
+        header_up Host {host}
+    }
+
+    # Sensible default security headers (Caddy adds HSTS automatically).
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+        # Helmet on the API also sets these — Caddy sets them at the edge.
+    }
+
+    log {
+        output stdout
+        format json
+    }
+}
