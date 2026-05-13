@@ -166,16 +166,30 @@ class ApiClient {
     return null;
   }
 
+  /// The q-engine API wraps every successful response in
+  /// `{status, message, data: <payload>}`. We unwrap to the inner payload
+  /// before type-shaping so callers can think in terms of "the list/map of
+  /// rows the endpoint conceptually returns".
+  static dynamic _unwrap(dynamic data) {
+    if (data is Map && data.containsKey('data') &&
+        (data['status'] == true || data['status'] == false || data.containsKey('message'))) {
+      return data['data'];
+    }
+    return data;
+  }
+
   static List<Map<String, dynamic>> _asList(dynamic data) {
-    if (data is List) {
-      return data.whereType<Map<String, dynamic>>().toList(growable: false);
+    final payload = _unwrap(data);
+    if (payload is List) {
+      return payload.whereType<Map<String, dynamic>>().toList(growable: false);
     }
     return const [];
   }
 
   static Map<String, dynamic> _asMap(dynamic data) {
-    if (data is Map<String, dynamic>) return data;
-    if (data is Map) return Map<String, dynamic>.from(data);
+    final payload = _unwrap(data);
+    if (payload is Map<String, dynamic>) return payload;
+    if (payload is Map) return Map<String, dynamic>.from(payload);
     return <String, dynamic>{};
   }
 
