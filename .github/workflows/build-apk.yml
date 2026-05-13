@@ -1,0 +1,86 @@
+# ---------------------------------------------------------------------------
+# Build qcraft-app as a release APK in the cloud.
+# Triggered:
+#   • automatically on pushes to main that touch qcraft-app/
+#   • manually via the Actions tab (workflow_dispatch) — lets you override
+#     the API base URL without committing anything.
+#
+# Output: a downloadable APK artifact attached to the run.
+# Sideload it to your Android phone (Google Drive / WhatsApp / adb).
+# ---------------------------------------------------------------------------
+name: Build qcraft-app APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'qcraft-app/**'
+      - '.github/workflows/build-apk.yml'
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'API base URL the APK should hit (must end with /)'
+        required: false
+        default: 'https://qcraft.code-etp.name.ng/'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build release APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: qcraft-app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.27.x'
+          cache: true
+
+      - name: Show Flutter setup
+        run: flutter doctor -v
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Static analysis
+        # Don't fail the build on lints — just surface them. Drop || true if you
+        # want stricter behaviour later.
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings || true
+
+      - name: Build release APK
+        env:
+          API_BASE_URL: ${{ github.event.inputs.api_base_url || 'https://qcraft.code-etp.name.ng/' }}
+        run: |
+          echo "Building APK with API_BASE_URL=$API_BASE_URL"
+          flutter build apk --release \
+            --dart-define=API_BASE_URL=$API_BASE_URL
+
+      - name: Rename APK with commit short SHA
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          mv build/app/outputs/flutter-apk/app-release.apk \
+             build/app/outputs/flutter-apk/qcraft-app-${SHORT_SHA}.apk
+          ls -lh build/app/outputs/flutter-apk/
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qcraft-app-apk
+          path: qcraft-app/build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
+          retention-days: 14
