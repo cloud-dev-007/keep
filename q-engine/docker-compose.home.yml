@@ -1,0 +1,101 @@
+# ---------------------------------------------------------------------------
+# Home-server compose for qcraft.code-etp.name.ng
+#
+# Differences from docker-compose.prod.yml:
+#   • No ollama service — uses the host's native Ollama systemd service.
+#     The API container reaches it via host.docker.internal:11434.
+#   • Otherwise identical: db (pgvector) + api + caddy with auto-HTTPS.
+#
+# Up:    docker compose -f docker-compose.home.yml --env-file .env.home up -d --build
+# Down:  docker compose -f docker-compose.home.yml --env-file .env.home down
+# ---------------------------------------------------------------------------
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: qcraft-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: qcraft-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # Linux Docker doesn't auto-create host.docker.internal; we map it
+    # explicitly so the API can reach the host's Ollama at port 11434.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_SYNCHRONIZE: "false"
+      DB_MIGRATIONS_RUN: "true"
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      LLM_BASE_URL: http://host.docker.internal:11434/v1
+      LLM_API_KEY: not-needed
+      LLM_MODEL: ${LLM_MODEL:-llama3.1:8b}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.4}
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-120000}
+      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-2}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
+      THROTTLE_TTL: ${THROTTLE_TTL:-60}
+      THROTTLE_LIMIT: ${THROTTLE_LIMIT:-1000}
+    volumes:
+      - api_uploads:/app/uploads
+    networks:
+      - internal
+      - web
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: qcraft-caddy
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
+    networks:
+      - web
+
+networks:
+  internal:
+    driver: bridge
+  web:
+    driver: bridge
+
+volumes:
+  db_data:
+  api_uploads:
+  caddy_data:
+  caddy_config:

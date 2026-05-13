@@ -6,7 +6,7 @@
 # ---------------------------------------------------------------------------
 services:
   db:
-    image: ankane/pgvector:latest
+    image: pgvector/pgvector:pg16
     container_name: qcraft-db-dev
     restart: unless-stopped
     ports:

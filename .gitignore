@@ -35,3 +35,16 @@ logs/
 # Misc
 .next/
 out/
+
+# Postgres data dir (created by docker-compose on local dev)
+qDatabase/
+q-engine/qDatabase/
+
+# Local env files (never commit secrets — Groq keys, DB passwords, etc.)
+.env
+.env.local
+.env.production
+.env.home
+.env.dev-vps
+*.env
+!*.env.example

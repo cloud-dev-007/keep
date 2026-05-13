@@ -1,0 +1,28 @@
+name: qcraft_app
+description: "qCraft mobile — adaptive quiz client for the q-engine API."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.6.1
+  flutter: ">=3.27.0"
+
+# Lean dependency set — only what we actually use.
+#   dio          : HTTP client (also handles multipart upload).
+#   file_picker  : Native picker for PDF / DOCX / TXT etc.
+#   intl         : Small footprint, used to format the quiz created-at dates.
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  dio: ^5.7.0
+  file_picker: ^10.1.9
+  intl: ^0.20.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

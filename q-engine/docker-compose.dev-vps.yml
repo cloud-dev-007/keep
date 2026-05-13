@@ -1,0 +1,92 @@
+# ---------------------------------------------------------------------------
+# Dev-on-VPS compose — full stack on a public-IP VPS for testing only.
+#
+# Differences from docker-compose.prod.yml:
+#   • No Caddy / no TLS — API is exposed directly on port 3000 over HTTP.
+#   • CORS open, NODE_ENV=development so logs are noisier.
+#   • DB and Ollama stay on the internal network (NOT exposed to the internet).
+#
+# Bring it up with:
+#   cp .env.dev-vps.example .env.dev-vps
+#   # edit the file
+#   docker compose -f docker-compose.dev-vps.yml --env-file .env.dev-vps up -d --build
+# ---------------------------------------------------------------------------
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_SYNCHRONIZE: "false"
+      DB_MIGRATIONS_RUN: "true"
+      CORS_ORIGINS: "*"
+      LLM_BASE_URL: http://ollama:11434/v1
+      LLM_API_KEY: not-needed
+      LLM_MODEL: ${LLM_MODEL:-llama3.2:3b}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.4}
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-120000}
+      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-2}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
+      THROTTLE_TTL: ${THROTTLE_TTL:-60}
+      THROTTLE_LIMIT: ${THROTTLE_LIMIT:-1000}
+    volumes:
+      - api_uploads:/app/uploads
+    networks:
+      - internal
+    ports:
+      # API exposed directly on port 3000 over HTTP. Lock this down with
+      # `ufw allow from <your-ip>` if you don't want the world to hit it.
+      - "3000:3000"
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  db_data:
+  ollama_data:
+  api_uploads:

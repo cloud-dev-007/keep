@@ -63,7 +63,7 @@ at the public domain.
 
 ---
 
-## 2. Local development
+## 2. Local developmen
 
 This is the workflow you'll use day-to-day.
 
@@ -169,7 +169,7 @@ If you want to test the **production stack** on your own machine before deployin
 ```bash
 cd q-engine
 cp .env.production.example .env.production
-
+ 
 # Edit .env.production. For local testing, use:
 #   DOMAIN=localhost
 #   LETSENCRYPT_EMAIL=you@example.com   (won't be used)
@@ -207,9 +207,9 @@ Wait for it to propagate (`dig your-domain.com` should return the VPS IP).
 ### 4.2 SSH into the VPS and clone the repo
 
 ```bash
-ssh user@your-vps-ip
-sudo apt update && sudo apt install -y git
-git clone <your-repo-url> qcraft && cd qcraft/q-engine
+# scp command to copy the codebase to the vps
+scp -r /path/to/local/codebase user@your-vps-ip:/path/to/remote/codebase
+# after ssh into ur vps , copy the codebase to the vps or clone using git if you have already pushed it to a remote repo , i advise using scp
 ```
 
 ### 4.3 Configure production env
@@ -229,7 +229,7 @@ CORS_ORIGINS=https://your-domain.com
 LLM_MODEL=llama3.1:8b      # or llama3.2:3b on smaller VPSes
 ```
 
-Generate a strong password with:
+Generate a strong password with: 
 
 ```bash
 openssl rand -base64 32
@@ -265,7 +265,7 @@ curl -fsS https://your-domain.com/health
 curl -fsS https://your-domain.com/api/docs   # Swagger UI in browser
 ```
 
-Caddy will fetch a Let's Encrypt cert automatically on first request.
+Caddy will fetch a Let's Encrypt cert automatically on first request. 
 
 ### 4.7 Build and ship the Flutter app
 
