@@ -55,7 +55,7 @@ export class QuizService {
       return await this.quizRepository.find({
         where,
         relations: ['questions', 'documents', 'questions.options'],
-        order: { createdAt: 'DESC' },
+        order: { createdAt: 'DESC', questions: { id: 'ASC' } },
       });
     } catch (err: any) {
       this.logger.error(
@@ -69,7 +69,8 @@ export class QuizService {
   async findOne(id: number) {
     const quiz = await this.quizRepository.findOne({
       where: { id },
-      relations: ['documents', 'questions'],
+      relations: ['documents', 'questions', 'questions.options'],
+      order: { questions: { id: 'ASC' } },
     });
     if (!quiz) {
       throw new NotFoundException(`Quiz with id ${id} not found`);
@@ -399,10 +400,19 @@ export class QuizService {
       },
     });
 
-    const questionList = response
-      .split(/\n?\d+\.\s*/)
+    // Primary: numbered format "1. Question" as instructed in the prompt.
+    // Fallback: plain double-newline separation in case the LLM ignores numbering.
+    let questionList = response
+      .split(/\n?\d+\.\s+/)
       .map((d) => d.trim())
       .filter((d) => d.length > 0);
+
+    if (questionList.length <= 1) {
+      questionList = response
+        .split(/\n{2,}/)
+        .map((d) => d.trim())
+        .filter((d) => d.length > 0);
+    }
 
     if (questionList.length === 0) {
       this.logger.error(
@@ -441,6 +451,6 @@ export class QuizService {
     });
     await this.quizRepository.save(quiz);
 
-    return quiz.id;
+    return this.findOne(quiz.id);
   }
 }

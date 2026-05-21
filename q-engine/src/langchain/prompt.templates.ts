@@ -169,14 +169,14 @@ If formatting guidelines are provided, follow them exactly. If no formatting is 
 `;
   static readonly generateQuestions = `
   Generate EXACTLY {questions} quiz questions based off the following context:
-  
+
   {context}
-  
-  Based on Bloom's Taxonomy ({level}), 
+
+  Based on Bloom's Taxonomy ({level}),
   use these instructions to structure the questions:
   {structure}
 
-  You must respond with ONLY the requested question. No explanations, no additional text before the questions.
-  return each question on a new line - no markdown, no bullets, no bold text, no styling.
+  You must respond with ONLY the requested questions. No explanations, no additional text before or after the questions.
+  Number each question. Format: "1. [question text]" — one question per line. No markdown, no bullets, no bold text, no styling.
   `;
 }

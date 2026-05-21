@@ -2,8 +2,9 @@ import { PGVectorStore } from '@langchain/community/vectorstores/pgvector';
 import { HuggingFaceTransformersEmbeddings } from '@langchain/community/embeddings/huggingface_transformers';
 import { PoolConfig } from 'pg';
 import { Document } from '@langchain/core/documents';
-import { OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 
+@Injectable()
 export class VectorStoreService implements OnModuleInit {
   private vectorStore: PGVectorStore;
   private embedder: HuggingFaceTransformersEmbeddings;
@@ -29,10 +30,8 @@ export class VectorStoreService implements OnModuleInit {
   }
 
   async similaritySearch(queryText: string, topK?: number, noteId?: number) {
-
-    return await this.vectorStore.similaritySearch(queryText, topK, {
-      filter: { lectureNoteId: noteId },
-    });
+    const filter = noteId != null ? { filter: { lectureNoteId: noteId } } : undefined;
+    return await this.vectorStore.similaritySearch(queryText, topK, filter as any);
   }
 
 
