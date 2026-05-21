@@ -36,9 +36,20 @@ export class HealthController {
       ? `${llmUrl}/models`
       : `${llmUrl}/v1/models`;
 
+    // Cloud providers (Groq, OpenAI, ...) require a Bearer token even on /models.
+    // Local servers (Ollama, LM Studio) ignore the header. Skip the header for the
+    // sentinel value used in dev/local prod so we don't accidentally send junk.
+    const key = this.langchain.apiKey;
+    const probeOpts: { timeout: number; headers?: Record<string, string> } = {
+      timeout: 15000,
+    };
+    if (key && key !== 'not-needed') {
+      probeOpts.headers = { Authorization: `Bearer ${key}` };
+    }
+
     return this.health.check([
       () => this.db.pingCheck('database'),
-      () => this.http.pingCheck('llm', probeUrl, { timeout: 5000 }),
+      () => this.http.pingCheck('llm', probeUrl, probeOpts),
     ]);
   }
 }

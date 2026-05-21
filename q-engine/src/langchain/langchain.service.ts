@@ -14,9 +14,11 @@ export class LangchainService {
   // Exposed for the health controller — read-only.
   public readonly baseURL: string;
   public readonly model: string;
+  public readonly apiKey: string;
 
   constructor() {
     this.baseURL = process.env.LLM_BASE_URL ?? 'http://localhost:1234/v1';
+    this.apiKey = process.env.LLM_API_KEY ?? '';
     this.model = process.env.LLM_MODEL ?? '';
     const temperature = parseFloat(process.env.LLM_TEMPERATURE ?? '0.4');
     const timeoutMs = parseInt(process.env.LLM_TIMEOUT_MS ?? '120000', 10);
