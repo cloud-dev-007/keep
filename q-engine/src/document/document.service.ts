@@ -54,12 +54,12 @@ export class DocumentService {
     );
     const documents = await this.documentRepository.save(savedDocs);
 
+    // Process and embed in the background so the upload response returns immediately
     for (const doc of documents) {
-      await this.processAndEmbedDocument(doc.id).catch((err) => {
+      this.processAndEmbedDocument(doc.id).catch((err) => {
         this.logger.error(`Failed to process document ${doc.id}`, err.stack);
       });
     }
-
 
     return documents;
   }
