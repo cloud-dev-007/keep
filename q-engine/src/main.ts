@@ -59,6 +59,9 @@ async function bootstrap() {
 
   // ---- Listen --------------------------------------------------------------
   const port = parseInt(process.env.PORT ?? '3000', 10);
+  const server = app.getHttpServer();
+  server.keepAliveTimeout = 120000;
+  server.headersTimeout = 125000;
   await app.listen(port, '0.0.0.0');
   const logger = new Logger('Bootstrap');
   logger.log(`q-engine running on http://0.0.0.0:${port}`);

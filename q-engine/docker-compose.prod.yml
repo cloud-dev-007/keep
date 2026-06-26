@@ -43,9 +43,7 @@ services:
       start_period: 60s
 
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: q-engine-api:patched
     restart: unless-stopped
     depends_on:
       db:
