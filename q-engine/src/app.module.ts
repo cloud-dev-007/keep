@@ -11,6 +11,8 @@ import { ConfigModule } from '@nestjs/config';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { HealthModule } from './health/health.module';
 import { dataSourceOptions } from './data-source';
+import { AuthModule } from './auth/auth.module';
+import { JwtAuthGuard } from './auth/jwt-auth.guard';
 
 @Module({
   imports: [
@@ -31,6 +33,7 @@ import { dataSourceOptions } from './data-source';
       // Run pending migrations on boot in non-dev or when explicitly asked.
       migrationsRun: process.env.DB_MIGRATIONS_RUN === 'true',
     }),
+    AuthModule,
     DocumentModule,
     LangchainModule,
     QuizModule,
@@ -41,6 +44,8 @@ import { dataSourceOptions } from './data-source';
   providers: [
     AppService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Auth runs after throttling. Routes opt out with @Public().
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
 })
 export class AppModule {}

@@ -49,8 +49,9 @@ export class QuizService {
     // automatically by Nest — no manual bootstrap required here.
   }
 
-  async getQuizzes(ids?: number[]) {
-    const where = ids && ids.length > 0 ? { id: In(ids) } : {};
+  async getQuizzes(userId: number, ids?: number[]) {
+    const where: any = { user: { id: userId } };
+    if (ids && ids.length > 0) where.id = In(ids);
     try {
       return await this.quizRepository.find({
         where,
@@ -66,9 +67,13 @@ export class QuizService {
     }
   }
 
-  async findOne(id: number) {
+  // userId is optional: internal callers omit it; HTTP callers pass it so a
+  // user can only ever touch their own quizzes.
+  async findOne(id: number, userId?: number) {
+    const where: any = { id };
+    if (userId != null) where.user = { id: userId };
     const quiz = await this.quizRepository.findOne({
-      where: { id },
+      where,
       relations: ['documents', 'questions', 'questions.options'],
       order: { questions: { id: 'ASC' } },
     });
@@ -104,8 +109,8 @@ export class QuizService {
     }
   }
 
-  async generateQuiz(quizId: number, history?: QuizAttempt) {
-    const quiz = await this.findOne(quizId);
+  async generateQuiz(quizId: number, userId: number, history?: QuizAttempt) {
+    const quiz = await this.findOne(quizId, userId);
 
     quiz.isAdaptive = history != null;
     if (history) quiz.difficulty = 1;
@@ -241,9 +246,9 @@ export class QuizService {
     return weakTopics;
   }
 
-  async evaluateAttempt(attempt: QuizAttemptDto) {
+  async evaluateAttempt(attempt: QuizAttemptDto, userId: number) {
     const quiz = await this.quizRepository.findOne({
-      where: { id: attempt.quizId },
+      where: { id: attempt.quizId, user: { id: userId } },
     });
     if (!quiz) {
       throw new NotFoundException(`Quiz with id ${attempt.quizId} not found`);
@@ -439,8 +444,10 @@ export class QuizService {
     return this.questionRepository.save(questions);
   }
 
-  async createQuiz(quizSetup: QuizSetupDto) {
+  async createQuiz(quizSetup: QuizSetupDto, userId: number) {
+    // Only the user's own documents are eligible as quiz sources.
     const documents = await this.documentService.getAllDocuments(
+      userId,
       quizSetup.documentIds,
     );
     if (!documents || documents.length === 0) {
@@ -453,9 +460,10 @@ export class QuizService {
       type: quizSetup.type,
       noOfQuestions: quizSetup.questions,
       documents,
+      user: { id: userId },
     });
     await this.quizRepository.save(quiz);
 
-    return this.findOne(quiz.id);
+    return this.findOne(quiz.id, userId);
   }
 }

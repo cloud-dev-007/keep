@@ -11,9 +11,11 @@ import {
 import { QuizService } from './quiz.service';
 import { QuizAttemptDto, QuizSetupDto } from './quiz.dto';
 import { QuizAttempt } from './entitites/quiz-attempt.entity';
-import { ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../auth/current-user.decorator';
 
 @ApiTags('quiz')
+@ApiBearerAuth()
 @Controller('quiz')
 export class QuizController {
   private readonly logger = new Logger(QuizController.name);
@@ -23,20 +25,29 @@ export class QuizController {
   @Get()
   @ApiOperation({ summary: 'List quizzes (optionally filter by ids)' })
   @ApiQuery({ name: 'ids', required: false, type: [Number] })
-  async getQuizzes(@Query('ids') ids?: Array<number>) {
-    return this.quizService.getQuizzes(ids);
+  async getQuizzes(
+    @CurrentUser('id') userId: number,
+    @Query('ids') ids?: Array<number>,
+  ) {
+    return this.quizService.getQuizzes(userId, ids);
   }
 
   @Post('evaluate')
   @ApiOperation({ summary: 'Evaluate a completed quiz attempt' })
-  async evaluateAttempt(@Body() attempt: QuizAttemptDto) {
-    return this.quizService.evaluateAttempt(attempt);
+  async evaluateAttempt(
+    @CurrentUser('id') userId: number,
+    @Body() attempt: QuizAttemptDto,
+  ) {
+    return this.quizService.evaluateAttempt(attempt, userId);
   }
 
   @Post('create')
   @ApiOperation({ summary: 'Create a quiz definition (no questions yet)' })
-  async createQuiz(@Body() quiz: QuizSetupDto) {
-    return this.quizService.createQuiz(quiz);
+  async createQuiz(
+    @CurrentUser('id') userId: number,
+    @Body() quiz: QuizSetupDto,
+  ) {
+    return this.quizService.createQuiz(quiz, userId);
   }
 
   @Post('generate/:id')
@@ -47,12 +58,13 @@ export class QuizController {
   })
   @ApiParam({ name: 'id', type: Number })
   async generateQuiz(
+    @CurrentUser('id') userId: number,
     @Param('id', ParseIntPipe) quizId: number,
     @Body() history?: QuizAttempt,
   ) {
     // The work is async + slow (LLM heavy); errors propagate via the global
     // exception filter. We log here for observability.
-    return this.quizService.generateQuiz(quizId, history).catch((err) => {
+    return this.quizService.generateQuiz(quizId, userId, history).catch((err) => {
       this.logger.error(
         `generateQuiz(${quizId}) failed: ${err?.message ?? err}`,
         err?.stack,

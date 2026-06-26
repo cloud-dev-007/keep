@@ -1,9 +1,14 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { User } from '../../auth/user.entity';
 
 @Entity()
 export class Document {
   @PrimaryGeneratedColumn()
   id: number;
+
+  // Owner. Nullable so the migration can add the column to any legacy rows.
+  @ManyToOne(() => User, { onDelete: 'CASCADE', nullable: true })
+  user?: User;
 
   @Column({ nullable: true })
   title?: string;

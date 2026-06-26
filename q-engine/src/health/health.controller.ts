@@ -8,6 +8,7 @@ import {
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { LangchainService } from '../langchain/langchain.service';
 import { Throttle } from '@nestjs/throttler';
+import { Public } from '../auth/public.decorator';
 
 @ApiTags('health')
 @Controller('health')
@@ -23,6 +24,7 @@ export class HealthController {
    * Returns 200 if both the DB and the LLM endpoint are reachable.
    * Used by Docker's healthcheck and by an external uptime monitor.
    */
+  @Public()
   @Get()
   @ApiOperation({ summary: 'Liveness/readiness probe — DB + LLM reachability' })
   @HealthCheck()
