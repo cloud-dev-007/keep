@@ -12,7 +12,7 @@ name: Build qcraft-app APK
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
     paths:
       - 'qcraft-app/**'
       - '.github/workflows/build-apk.yml'
