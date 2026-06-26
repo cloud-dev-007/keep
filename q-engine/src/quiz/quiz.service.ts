@@ -255,6 +255,11 @@ export class QuizService {
       timeTaken: attempt.timeTaken,
     });
 
+    // Persist first so the row gets an id. evaluateAnswers links each
+    // QuestionAttempt to this attempt via its id — without a saved id TypeORM
+    // throws UpdateValuesMissingError when saving the child attempts.
+    await this.quizAttemptRepository.save(quizAttempt);
+
     quizAttempt.weakTopics = await this.evaluateAnswers(
       quizAttempt,
       attempt.attempts,

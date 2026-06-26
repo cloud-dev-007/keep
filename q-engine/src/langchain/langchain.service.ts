@@ -35,6 +35,11 @@ export class LangchainService {
       maxRetries,
       configuration: {
         baseURL: this.baseURL,
+        // Use Node's native global fetch instead of the openai SDK's bundled
+        // fetch shim. On Node 22 the shim intermittently throws "Premature
+        // close" when reading remote LLM responses (e.g. Groq); the native
+        // fetch reads the body reliably.
+        fetch: (url: any, init?: any) => fetch(url, init),
       },
     });
 
