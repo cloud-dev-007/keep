@@ -8,9 +8,10 @@ environment:
   flutter: ">=3.27.0"
 
 # Lean dependency set — only what we actually use.
-#   dio          : HTTP client (also handles multipart upload).
-#   file_picker  : Native picker for PDF / DOCX / TXT etc.
-#   intl         : Small footprint, used to format the quiz created-at dates.
+#   dio                : HTTP client (also handles multipart upload).
+#   file_picker        : Native picker for PDF / DOCX / TXT etc.
+#   intl               : Small footprint, used to format the quiz created-at dates.
+#   shared_preferences : Persists the auth token across app restarts.
 dependencies:
   flutter:
     sdk: flutter
@@ -18,6 +19,7 @@ dependencies:
   dio: ^5.7.0
   file_picker: ^10.1.9
   intl: ^0.20.2
+  shared_preferences: ^2.3.2
 
 dev_dependencies:
   flutter_test:

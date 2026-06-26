@@ -104,6 +104,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
             onPressed: _reload,
             icon: const Icon(Icons.refresh),
           ),
+          const LogoutButton(),
         ],
       ),
       body: Stack(

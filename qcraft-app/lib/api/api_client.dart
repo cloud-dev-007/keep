@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 
+import 'auth_store.dart';
 import 'models.dart';
 
 /// Thrown for non-2xx responses or transport failures. UI layer catches these
@@ -32,7 +33,29 @@ class ApiClient {
             // message NestJS returns ({statusCode, message, error}).
             validateStatus: (s) => s != null && s < 500,
           ),
-        );
+        ) {
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        // Attach the bearer token to every request when authenticated.
+        onRequest: (options, handler) {
+          final token = authStore.token;
+          if (token != null && token.isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer $token';
+          }
+          handler.next(options);
+        },
+        // A 401 means the token is missing/expired — drop the session so the
+        // app falls back to the login screen. (401 comes through as a normal
+        // response because validateStatus allows <500.)
+        onResponse: (response, handler) {
+          if (response.statusCode == 401) {
+            authStore.clear();
+          }
+          handler.next(response);
+        },
+      ),
+    );
+  }
 
   /// Default base URL. Override per build with `--dart-define=API_BASE_URL=...`.
   static const String defaultBaseUrl = String.fromEnvironment(
@@ -58,6 +81,52 @@ class ApiClient {
     final res = await _safe(() => _dio.get<dynamic>('health'));
     return (res.data is Map<String, dynamic>) ? res.data as Map<String, dynamic> : {};
   }
+
+  // -------------------------------------------------------------------------
+  // Auth
+  // -------------------------------------------------------------------------
+
+  /// Registers a new account, stores the returned token, and returns it.
+  Future<void> register({
+    required String email,
+    required String password,
+    String? name,
+  }) async {
+    final res = await _safe(
+      () => _dio.post<dynamic>('auth/register', data: {
+        'email': email,
+        'password': password,
+        if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+      }),
+    );
+    await _persistSession(_asMap(res.data));
+  }
+
+  /// Logs in, stores the returned token.
+  Future<void> login({required String email, required String password}) async {
+    final res = await _safe(
+      () => _dio.post<dynamic>('auth/login', data: {
+        'email': email,
+        'password': password,
+      }),
+    );
+    await _persistSession(_asMap(res.data));
+  }
+
+  Future<void> _persistSession(Map<String, dynamic> data) async {
+    final token = data['token'] as String?;
+    if (token == null || token.isEmpty) {
+      throw ApiException('Login succeeded but no token was returned');
+    }
+    final user = data['user'];
+    await authStore.setSession(
+      token: token,
+      email: user is Map ? user['email'] as String? : null,
+      name: user is Map ? user['name'] as String? : null,
+    );
+  }
+
+  Future<void> logout() => authStore.clear();
 
   // -------------------------------------------------------------------------
   // Documents
