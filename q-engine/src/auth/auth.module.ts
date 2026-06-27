@@ -18,7 +18,8 @@ import { JwtAuthGuard } from './jwt-auth.guard';
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtAuthGuard],
-  // JwtModule/JwtAuthGuard exported so the global APP_GUARD can resolve them.
-  exports: [JwtModule, JwtAuthGuard],
+  // Exported (module is @Global) so the global APP_GUARD declared in
+  // AppModule can resolve JwtAuthGuard *and* its UserRepository dependency.
+  exports: [JwtModule, JwtAuthGuard, TypeOrmModule],
 })
 export class AuthModule {}
