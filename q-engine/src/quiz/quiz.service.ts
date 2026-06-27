@@ -302,6 +302,17 @@ export class QuizService {
     return await this.quizAttemptRepository.save(quizAttempt);
   }
 
+  /** Max characters of source context sent to the LLM per request (~3k
+   *  tokens) — keeps requests under tight provider limits (e.g. Groq free
+   *  tier ~6000 tokens/request) and avoids 413 "request too large" on big
+   *  documents. */
+  private static readonly MAX_CONTEXT_CHARS = 12000;
+
+  static capContext(context: string): string {
+    if (context.length <= QuizService.MAX_CONTEXT_CHARS) return context;
+    return context.slice(0, QuizService.MAX_CONTEXT_CHARS);
+  }
+
   async generateAnswer(question: QuizQuestion, quizType: QuizType) {
     const relevantChunks = await this.vectorStore.similaritySearch(
       question.question,
@@ -316,7 +327,9 @@ export class QuizService {
       return true;
     });
 
-    const context = uniqueChunks.map((doc) => doc.pageContent).join('\n\n');
+    const context = QuizService.capContext(
+      uniqueChunks.map((doc) => doc.pageContent).join('\n\n'),
+    );
     const answerTemplate = ChatPromptTemplate.fromTemplate(
       PromptTemplates.generateAnswer,
     );
@@ -414,6 +427,11 @@ export class QuizService {
         'This document is still being processed. Please wait a few seconds and try again.',
       );
     }
+
+    // Cap the context so a large document doesn't blow the LLM's token budget
+    // (Groq's free tier is ~6000 tokens/request). ~12k chars ≈ ~3k tokens,
+    // which leaves ample room for the prompt + the generated questions.
+    context = QuizService.capContext(context);
 
     const template = ChatPromptTemplate.fromTemplate(
       PromptTemplates.generateQuestions,
