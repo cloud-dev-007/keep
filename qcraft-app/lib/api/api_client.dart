@@ -198,29 +198,81 @@ class ApiClient {
   // Internals
   // -------------------------------------------------------------------------
 
-  Future<Response<T>> _safe<T>(Future<Response<T>> Function() run) async {
-    try {
-      final res = await run();
-      final code = res.statusCode ?? 0;
-      if (code < 200 || code >= 300) {
-        throw ApiException(
-          _extractMessage(res.data) ?? 'Request failed ($code)',
-          statusCode: code,
-          detail: res.data,
-        );
-      }
-      return res;
-    } on ApiException {
-      rethrow;
-    } on DioException catch (e) {
-      throw ApiException(
-        _extractMessage(e.response?.data) ?? e.message ?? 'Network error',
-        statusCode: e.response?.statusCode,
-        detail: e.response?.data ?? e,
-      );
-    } catch (e) {
-      throw ApiException(e.toString());
+  /// Transient backend states (e.g. the API container restarting after a
+  /// deploy) surface as a 502/503/504 or a connection/timeout error for a few
+  /// seconds. We retry those a couple of times with a short backoff so the
+  /// blip is invisible to the user. 4xx (including 401) are never retried.
+  static const _maxAttempts = 3;
+
+  static bool _isTransientStatus(int? code) =>
+      code == 502 || code == 503 || code == 504;
+
+  static bool _isTransientDioError(DioException e) {
+    if (_isTransientStatus(e.response?.statusCode)) return true;
+    switch (e.type) {
+      case DioExceptionType.connectionError:
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.receiveTimeout:
+        return true;
+      default:
+        return false;
     }
+  }
+
+  Future<Response<T>> _safe<T>(Future<Response<T>> Function() run) async {
+    for (var attempt = 1; ; attempt++) {
+      final lastAttempt = attempt >= _maxAttempts;
+      try {
+        final res = await run();
+        final code = res.statusCode ?? 0;
+        if (_isTransientStatus(code) && !lastAttempt) {
+          await Future<void>.delayed(_backoff(attempt));
+          continue;
+        }
+        if (code < 200 || code >= 300) {
+          throw ApiException(
+            _friendlyMessage(code, res.data) ?? 'Request failed ($code)',
+            statusCode: code,
+            detail: res.data,
+          );
+        }
+        return res;
+      } on ApiException {
+        rethrow;
+      } on DioException catch (e) {
+        if (_isTransientDioError(e) && !lastAttempt) {
+          await Future<void>.delayed(_backoff(attempt));
+          continue;
+        }
+        throw ApiException(
+          _friendlyMessage(e.response?.statusCode, e.response?.data) ??
+              e.message ??
+              'Network error',
+          statusCode: e.response?.statusCode,
+          detail: e.response?.data ?? e,
+        );
+      } catch (e) {
+        throw ApiException(e.toString());
+      }
+    }
+  }
+
+  static Duration _backoff(int attempt) =>
+      Duration(milliseconds: 800 * attempt);
+
+  /// Picks a user-facing message. Gateway errors (and HTML error pages) get a
+  /// fixed friendly line instead of dumping the proxy's raw HTML into the UI.
+  static String? _friendlyMessage(int? code, dynamic body) {
+    if (_isTransientStatus(code) || _looksLikeHtml(body)) {
+      return 'The server is starting back up. Please try again in a few seconds.';
+    }
+    return _extractMessage(body);
+  }
+
+  static bool _looksLikeHtml(dynamic body) {
+    if (body is! String) return false;
+    final s = body.trimLeft().toLowerCase();
+    return s.startsWith('<!doctype') || s.startsWith('<html');
   }
 
   static String? _extractMessage(dynamic body) {
@@ -231,7 +283,8 @@ class ApiClient {
       final err = body['error'];
       if (err is String) return err;
     }
-    if (body is String && body.isNotEmpty) return body;
+    // Plain-text error bodies are fine to surface, but never raw HTML pages.
+    if (body is String && body.isNotEmpty && !_looksLikeHtml(body)) return body;
     return null;
   }
 

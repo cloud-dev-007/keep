@@ -136,7 +136,13 @@ class ErrorView extends StatelessWidget {
   }
 }
 
-void showSnack(BuildContext context, String message, {bool error = false}) {
+void showSnack(
+  BuildContext context,
+  String message, {
+  bool error = false,
+  String? actionLabel,
+  VoidCallback? onAction,
+}) {
   final s = ScaffoldMessenger.maybeOf(context);
   if (s == null) return;
   s.hideCurrentSnackBar();
@@ -145,6 +151,9 @@ void showSnack(BuildContext context, String message, {bool error = false}) {
       content: Text(message),
       backgroundColor: error ? Theme.of(context).colorScheme.error : null,
       behavior: SnackBarBehavior.floating,
+      action: (actionLabel != null && onAction != null)
+          ? SnackBarAction(label: actionLabel, onPressed: onAction)
+          : null,
     ),
   );
 }
