@@ -112,8 +112,17 @@ export class QuizService {
   async generateQuiz(quizId: number, userId: number, history?: QuizAttempt) {
     const quiz = await this.findOne(quizId, userId);
 
-    quiz.isAdaptive = history != null;
-    if (history) quiz.difficulty = 1;
+    // An empty POST body arrives as {} (truthy) — only treat it as a real
+    // adaptive attempt when it actually carries prior results. Otherwise the
+    // adaptive branch builds context from an empty weakTopics list, leaving
+    // the LLM with no source material (it then emits generic questions).
+    const isAdaptive =
+      !!history &&
+      ((history.id != null) || ((history.weakTopics?.length ?? 0) > 0));
+    if (!isAdaptive) history = undefined;
+
+    quiz.isAdaptive = isAdaptive;
+    if (isAdaptive) quiz.difficulty = 1;
 
     quiz.title = await this.generateTitle(quiz, history);
     quiz.questions = await this.generateQuestions(quiz, history);
