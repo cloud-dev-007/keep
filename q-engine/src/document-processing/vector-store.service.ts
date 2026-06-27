@@ -10,9 +10,12 @@ export class VectorStoreService implements OnModuleInit {
   private embedder: HuggingFaceTransformersEmbeddings;
 
   async onModuleInit() {
-    // 1. Initialize HuggingFace embedder
+    // 1. Initialize HuggingFace embedder.
+    // Small (384-dim, ~130MB) CPU-friendly model — bge-large (1.3GB) OOM-crashes
+    // small hosts on large documents. Must match EmbeddingService's model so
+    // stored vectors and query vectors share the same space/dimension.
     this.embedder = new HuggingFaceTransformersEmbeddings({
-      model: 'BAAI/bge-large-en-v1.5',
+      model: 'Xenova/bge-small-en-v1.5',
       maxConcurrency: 2,
     });
 
