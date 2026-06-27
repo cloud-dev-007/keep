@@ -4,9 +4,12 @@ import type { Document } from 'langchain/document';
 
 @Injectable()
 export class DocumentSplitterService {
+  // Larger chunks → far fewer of them per document, which keeps embedding
+  // tractable on small CPU-only hosts (a 472-page PDF goes from ~838 chunks
+  // to ~210). Still small enough for focused retrieval.
   private readonly splitter = new RecursiveCharacterTextSplitter({
-    chunkSize: 1000,
-    chunkOverlap: 200,
+    chunkSize: 4000,
+    chunkOverlap: 400,
   });
 
   async split(documents: Document[]): Promise<Document[]> {

@@ -27,6 +27,12 @@ RUN npm run build
 # Trim dev deps for the final image.
 RUN npm prune --omit=dev
 
+# Pre-fetch + validate the embedding model into node_modules/.cache at build
+# time so it ships baked into the image. Avoids per-container runtime downloads
+# (which intermittently corrupt on flaky hosts -> "Protobuf parsing failed").
+# Retries a few times and verifies the embedding dimension before accepting.
+RUN node -e "(async()=>{const{HuggingFaceTransformersEmbeddings}=require('@langchain/community/embeddings/huggingface_transformers');const fs=require('fs');const dir='/app/node_modules/@huggingface/transformers/.cache';for(let i=1;i<=5;i++){try{const e=new HuggingFaceTransformersEmbeddings({model:'Xenova/bge-small-en-v1.5'});const v=await e.embedQuery('warmup');if(!Array.isArray(v)||v.length!==384)throw new Error('unexpected dim '+(v&&v.length));console.log('embedding model cached ok (dim '+v.length+')');process.exit(0);}catch(err){console.log('prefetch attempt '+i+' failed: '+err.message);try{fs.rmSync(dir,{recursive:true,force:true});}catch(_){}}}console.error('embedding model prefetch failed after retries');process.exit(1);})()"
+
 # ---------------------------------------------------------------------------
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
