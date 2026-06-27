@@ -260,13 +260,17 @@ class ApiClient {
   static Duration _backoff(int attempt) =>
       Duration(milliseconds: 800 * attempt);
 
-  /// Picks a user-facing message. Gateway errors (and HTML error pages) get a
-  /// fixed friendly line instead of dumping the proxy's raw HTML into the UI.
+  /// Picks a user-facing message. Prefers the backend's own JSON message (e.g.
+  /// "This document is still being processed") so we don't mask real 503s.
+  /// Only falls back to the generic gateway line for raw proxy errors that
+  /// carry no usable message (HTML 502/503/504 pages).
   static String? _friendlyMessage(int? code, dynamic body) {
+    final extracted = _extractMessage(body);
+    if (extracted != null) return extracted;
     if (_isTransientStatus(code) || _looksLikeHtml(body)) {
       return 'The server is starting back up. Please try again in a few seconds.';
     }
-    return _extractMessage(body);
+    return null;
   }
 
   static bool _looksLikeHtml(dynamic body) {
