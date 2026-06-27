@@ -3,6 +3,7 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
@@ -402,6 +403,16 @@ export class QuizService {
         }),
       );
       context = contexts.join('\n\n---\n\n');
+    }
+
+    // No context means the source document hasn't finished embedding yet (it
+    // happens in the background after upload). Generating anyway would leave
+    // the LLM with nothing to work from and produce generic, off-topic
+    // questions, so fail loudly with a retryable message instead.
+    if (!context || context.trim().length === 0) {
+      throw new ServiceUnavailableException(
+        'This document is still being processed. Please wait a few seconds and try again.',
+      );
     }
 
     const template = ChatPromptTemplate.fromTemplate(
