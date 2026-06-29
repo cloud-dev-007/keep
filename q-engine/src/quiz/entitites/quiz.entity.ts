@@ -1,13 +1,18 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToMany, CreateDateColumn, ManyToMany, JoinTable } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany, CreateDateColumn, ManyToMany, JoinTable, ManyToOne } from 'typeorm';
 import { QuizQuestion } from './quiz-question.entity';
 import { Document } from '../../document/entity/document.entity';
 import { QuizType } from '../enums/quiz-type.enum';
 import { QuizAttempt } from './quiz-attempt.entity';
+import { User } from '../../auth/user.entity';
 
 @Entity()
 export class Quiz {
   @PrimaryGeneratedColumn()
   id: number;
+
+  // Owner. Nullable so the migration can add the column to any legacy rows.
+  @ManyToOne(() => User, { onDelete: 'CASCADE', nullable: true })
+  user?: User;
 
 
   @Column({ nullable: true })

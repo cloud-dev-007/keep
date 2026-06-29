@@ -22,7 +22,9 @@ import {
   ApiParam,
   ApiQuery,
   ApiTags,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
+import { CurrentUser } from '../auth/current-user.decorator';
 
 const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.doc', '.pptx', '.txt'];
 const ALLOWED_MIME_TYPES = new Set([
@@ -44,6 +46,7 @@ function sanitizeBaseName(name: string): string {
 }
 
 @ApiTags('document')
+@ApiBearerAuth()
 @Controller('document')
 export class DocumentController {
   constructor(private readonly documentService: DocumentService) {}
@@ -51,21 +54,32 @@ export class DocumentController {
   @Get()
   @ApiOperation({ summary: 'List uploaded documents (optionally filter by ids)' })
   @ApiQuery({ name: 'ids', required: false, type: [Number] })
-  async getAllDocuments(@Query('ids') ids?: Array<number>) {
-    return this.documentService.getAllDocuments(ids);
+  async getAllDocuments(
+    @CurrentUser('id') userId: number,
+    @Query('ids') ids?: Array<number>,
+  ) {
+    return this.documentService.getAllDocuments(userId, ids);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a document and its embeddings' })
   @ApiParam({ name: 'id', type: Number })
-  async deleteDocument(@Param('id', ParseIntPipe) id: number) {
-    return this.documentService.removeDocument(id);
+  async deleteDocument(
+    @CurrentUser('id') userId: number,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.documentService.removeDocument(id, userId);
   }
 
   @Post('upload/:id')
   @ApiOperation({ summary: 'Re-process and embed an already-uploaded document' })
   @ApiParam({ name: 'id', type: Number })
-  async embedDocuments(@Param('id', ParseIntPipe) id: number) {
+  async embedDocuments(
+    @CurrentUser('id') userId: number,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    // Verify ownership before kicking off the (internal) embedding pipeline.
+    await this.documentService.findOne(id, userId);
     return await this.documentService.processAndEmbedDocument(id);
   }
 
@@ -119,10 +133,13 @@ export class DocumentController {
       },
     }),
   )
-  async uploadFiles(@UploadedFiles() files: Array<Express.Multer.File>) {
+  async uploadFiles(
+    @CurrentUser('id') userId: number,
+    @UploadedFiles() files: Array<Express.Multer.File>,
+  ) {
     if (!files || files.length === 0) {
       throw new BadRequestException('No files were uploaded');
     }
-    return this.documentService.uploadDocuments(files);
+    return this.documentService.uploadDocuments(files, userId);
   }
 }

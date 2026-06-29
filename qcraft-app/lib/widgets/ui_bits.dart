@@ -1,6 +1,46 @@
 import 'package:flutter/material.dart';
 
+import '../api/auth_store.dart';
+
 /// Small reusable widgets — kept in one file to avoid file sprawl.
+
+/// AppBar action that confirms then ends the session. The AuthGate reacts to
+/// authStore and returns the user to the login screen.
+class LogoutButton extends StatelessWidget {
+  const LogoutButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: 'Log out',
+      icon: const Icon(Icons.logout),
+      onPressed: () async {
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Log out?'),
+            content: Text(
+              authStore.email == null
+                  ? 'You will need to log in again.'
+                  : 'Logged in as ${authStore.email}.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton.tonal(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Log out'),
+              ),
+            ],
+          ),
+        );
+        if (ok == true) await authStore.clear();
+      },
+    );
+  }
+}
 
 class LoadingView extends StatelessWidget {
   const LoadingView({super.key, this.label});
@@ -96,7 +136,13 @@ class ErrorView extends StatelessWidget {
   }
 }
 
-void showSnack(BuildContext context, String message, {bool error = false}) {
+void showSnack(
+  BuildContext context,
+  String message, {
+  bool error = false,
+  String? actionLabel,
+  VoidCallback? onAction,
+}) {
   final s = ScaffoldMessenger.maybeOf(context);
   if (s == null) return;
   s.hideCurrentSnackBar();
@@ -105,6 +151,9 @@ void showSnack(BuildContext context, String message, {bool error = false}) {
       content: Text(message),
       backgroundColor: error ? Theme.of(context).colorScheme.error : null,
       behavior: SnackBarBehavior.floating,
+      action: (actionLabel != null && onAction != null)
+          ? SnackBarAction(label: actionLabel, onPressed: onAction)
+          : null,
     ),
   );
 }

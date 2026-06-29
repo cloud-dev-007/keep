@@ -8,9 +8,13 @@ export class EmbeddingService implements OnModuleInit {
   public embedder: HuggingFaceTransformersEmbeddings;
 
   async onModuleInit() {
+    // Small (384-dim, ~130MB) CPU-friendly model. bge-large (1.3GB) OOM-crashes
+    // small hosts when embedding large documents (hundreds of chunks). Quality
+    // is plenty for quiz generation, which mostly retrieves chunks by document
+    // id rather than by similarity. Must match VectorStoreService's model.
     this.embedder = new HuggingFaceTransformersEmbeddings({
-      model: 'BAAI/bge-large-en-v1.5',
-      maxConcurrency: 2, // Optional: optimize with your M1
+      model: 'Xenova/bge-small-en-v1.5',
+      maxConcurrency: 2,
     });
   }
 

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 
+import 'auth_store.dart';
 import 'models.dart';
 
 /// Thrown for non-2xx responses or transport failures. UI layer catches these
@@ -32,7 +33,29 @@ class ApiClient {
             // message NestJS returns ({statusCode, message, error}).
             validateStatus: (s) => s != null && s < 500,
           ),
-        );
+        ) {
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        // Attach the bearer token to every request when authenticated.
+        onRequest: (options, handler) {
+          final token = authStore.token;
+          if (token != null && token.isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer $token';
+          }
+          handler.next(options);
+        },
+        // A 401 means the token is missing/expired — drop the session so the
+        // app falls back to the login screen. (401 comes through as a normal
+        // response because validateStatus allows <500.)
+        onResponse: (response, handler) {
+          if (response.statusCode == 401) {
+            authStore.clear();
+          }
+          handler.next(response);
+        },
+      ),
+    );
+  }
 
   /// Default base URL. Override per build with `--dart-define=API_BASE_URL=...`.
   static const String defaultBaseUrl = String.fromEnvironment(
@@ -58,6 +81,52 @@ class ApiClient {
     final res = await _safe(() => _dio.get<dynamic>('health'));
     return (res.data is Map<String, dynamic>) ? res.data as Map<String, dynamic> : {};
   }
+
+  // -------------------------------------------------------------------------
+  // Auth
+  // -------------------------------------------------------------------------
+
+  /// Registers a new account, stores the returned token, and returns it.
+  Future<void> register({
+    required String email,
+    required String password,
+    String? name,
+  }) async {
+    final res = await _safe(
+      () => _dio.post<dynamic>('auth/register', data: {
+        'email': email,
+        'password': password,
+        if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+      }),
+    );
+    await _persistSession(_asMap(res.data));
+  }
+
+  /// Logs in, stores the returned token.
+  Future<void> login({required String email, required String password}) async {
+    final res = await _safe(
+      () => _dio.post<dynamic>('auth/login', data: {
+        'email': email,
+        'password': password,
+      }),
+    );
+    await _persistSession(_asMap(res.data));
+  }
+
+  Future<void> _persistSession(Map<String, dynamic> data) async {
+    final token = data['token'] as String?;
+    if (token == null || token.isEmpty) {
+      throw ApiException('Login succeeded but no token was returned');
+    }
+    final user = data['user'];
+    await authStore.setSession(
+      token: token,
+      email: user is Map ? user['email'] as String? : null,
+      name: user is Map ? user['name'] as String? : null,
+    );
+  }
+
+  Future<void> logout() => authStore.clear();
 
   // -------------------------------------------------------------------------
   // Documents
@@ -129,29 +198,85 @@ class ApiClient {
   // Internals
   // -------------------------------------------------------------------------
 
-  Future<Response<T>> _safe<T>(Future<Response<T>> Function() run) async {
-    try {
-      final res = await run();
-      final code = res.statusCode ?? 0;
-      if (code < 200 || code >= 300) {
-        throw ApiException(
-          _extractMessage(res.data) ?? 'Request failed ($code)',
-          statusCode: code,
-          detail: res.data,
-        );
-      }
-      return res;
-    } on ApiException {
-      rethrow;
-    } on DioException catch (e) {
-      throw ApiException(
-        _extractMessage(e.response?.data) ?? e.message ?? 'Network error',
-        statusCode: e.response?.statusCode,
-        detail: e.response?.data ?? e,
-      );
-    } catch (e) {
-      throw ApiException(e.toString());
+  /// Transient backend states (e.g. the API container restarting after a
+  /// deploy) surface as a 502/503/504 or a connection/timeout error for a few
+  /// seconds. We retry those a couple of times with a short backoff so the
+  /// blip is invisible to the user. 4xx (including 401) are never retried.
+  static const _maxAttempts = 3;
+
+  static bool _isTransientStatus(int? code) =>
+      code == 502 || code == 503 || code == 504;
+
+  static bool _isTransientDioError(DioException e) {
+    if (_isTransientStatus(e.response?.statusCode)) return true;
+    switch (e.type) {
+      case DioExceptionType.connectionError:
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.receiveTimeout:
+        return true;
+      default:
+        return false;
     }
+  }
+
+  Future<Response<T>> _safe<T>(Future<Response<T>> Function() run) async {
+    for (var attempt = 1; ; attempt++) {
+      final lastAttempt = attempt >= _maxAttempts;
+      try {
+        final res = await run();
+        final code = res.statusCode ?? 0;
+        if (_isTransientStatus(code) && !lastAttempt) {
+          await Future<void>.delayed(_backoff(attempt));
+          continue;
+        }
+        if (code < 200 || code >= 300) {
+          throw ApiException(
+            _friendlyMessage(code, res.data) ?? 'Request failed ($code)',
+            statusCode: code,
+            detail: res.data,
+          );
+        }
+        return res;
+      } on ApiException {
+        rethrow;
+      } on DioException catch (e) {
+        if (_isTransientDioError(e) && !lastAttempt) {
+          await Future<void>.delayed(_backoff(attempt));
+          continue;
+        }
+        throw ApiException(
+          _friendlyMessage(e.response?.statusCode, e.response?.data) ??
+              e.message ??
+              'Network error',
+          statusCode: e.response?.statusCode,
+          detail: e.response?.data ?? e,
+        );
+      } catch (e) {
+        throw ApiException(e.toString());
+      }
+    }
+  }
+
+  static Duration _backoff(int attempt) =>
+      Duration(milliseconds: 800 * attempt);
+
+  /// Picks a user-facing message. Prefers the backend's own JSON message (e.g.
+  /// "This document is still being processed") so we don't mask real 503s.
+  /// Only falls back to the generic gateway line for raw proxy errors that
+  /// carry no usable message (HTML 502/503/504 pages).
+  static String? _friendlyMessage(int? code, dynamic body) {
+    final extracted = _extractMessage(body);
+    if (extracted != null) return extracted;
+    if (_isTransientStatus(code) || _looksLikeHtml(body)) {
+      return 'The server is starting back up. Please try again in a few seconds.';
+    }
+    return null;
+  }
+
+  static bool _looksLikeHtml(dynamic body) {
+    if (body is! String) return false;
+    final s = body.trimLeft().toLowerCase();
+    return s.startsWith('<!doctype') || s.startsWith('<html');
   }
 
   static String? _extractMessage(dynamic body) {
@@ -162,7 +287,8 @@ class ApiClient {
       final err = body['error'];
       if (err is String) return err;
     }
-    if (body is String && body.isNotEmpty) return body;
+    // Plain-text error bodies are fine to surface, but never raw HTML pages.
+    if (body is String && body.isNotEmpty && !_looksLikeHtml(body)) return body;
     return null;
   }
 

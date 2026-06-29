@@ -22,8 +22,9 @@ export class DocumentService {
     private readonly documentExtractor: DocumentExtractionService,
   ) {};
 
-  async getAllDocuments(ids?: Array<number>) {
-    const where = ids && ids.length > 0 ? { id: In(ids) } : {};
+  async getAllDocuments(userId: number, ids?: Array<number>) {
+    const where: any = { user: { id: userId } };
+    if (ids && ids.length > 0) where.id = In(ids);
     return await this.documentRepository.find({
       where,
       order: { createdAt: 'DESC' },
@@ -36,7 +37,7 @@ export class DocumentService {
   }
 
 
-  async uploadDocuments(files: Array<Express.Multer.File>) {
+  async uploadDocuments(files: Array<Express.Multer.File>, userId: number) {
     const supportedExtensions = ['.pdf', '.docx', '.doc', '.pptx', '.txt'];
 
     const savedDocs = files.map((file) => {
@@ -49,17 +50,18 @@ export class DocumentService {
           formatType: format,
           fileName: file.originalname,
           filePath: file.path,
+          user: { id: userId },
         });
       },
     );
     const documents = await this.documentRepository.save(savedDocs);
 
+    // Process and embed in the background so the upload response returns immediately
     for (const doc of documents) {
-      await this.processAndEmbedDocument(doc.id).catch((err) => {
+      this.processAndEmbedDocument(doc.id).catch((err) => {
         this.logger.error(`Failed to process document ${doc.id}`, err.stack);
       });
     }
-
 
     return documents;
   }
@@ -144,16 +146,20 @@ export class DocumentService {
     return document;
   }
 
-  async findOne(id: number) {
-    const document = await this.documentRepository.findOne({ where: { id } });
+  // userId is optional: internal callers (embedding pipeline) omit it; HTTP
+  // callers pass it so a user can only ever touch their own documents.
+  async findOne(id: number, userId?: number) {
+    const where: any = { id };
+    if (userId != null) where.user = { id: userId };
+    const document = await this.documentRepository.findOne({ where });
     if (!document) {
       throw new NotFoundException(`Document with id ${id} not found`);
     }
     return document;
   }
 
-  async removeDocument(id: number) {
-    const document = await this.findOne(id);
+  async removeDocument(id: number, userId: number) {
+    const document = await this.findOne(id, userId);
     return await this.documentRepository.remove(document);
   }
 }

@@ -11,7 +11,7 @@
 # ---------------------------------------------------------------------------
 services:
   db:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:pg15
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER}
@@ -43,9 +43,7 @@ services:
       start_period: 60s
 
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: q-engine-api:patched
     restart: unless-stopped
     depends_on:
       db:
@@ -63,8 +61,8 @@ services:
       DB_SYNCHRONIZE: "false"
       DB_MIGRATIONS_RUN: "true"
       CORS_ORIGINS: ${CORS_ORIGINS}
-      LLM_BASE_URL: http://ollama:11434/v1
-      LLM_API_KEY: not-needed
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-not-needed}
       LLM_MODEL: ${LLM_MODEL:-llama3.1:8b}
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.4}
       LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-120000}
@@ -72,6 +70,8 @@ services:
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
       THROTTLE_TTL: ${THROTTLE_TTL:-60}
       THROTTLE_LIMIT: ${THROTTLE_LIMIT:-120}
+    ports:
+      - "10.8.0.4:3001:3000"
     volumes:
       - api_uploads:/app/uploads
     networks:

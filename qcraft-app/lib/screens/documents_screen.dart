@@ -61,7 +61,15 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
       showSnack(context, 'Upload complete — embedding in background');
       _reload();
     } on ApiException catch (e) {
-      if (mounted) showSnack(context, e.message, error: true);
+      if (mounted) {
+        showSnack(
+          context,
+          e.message,
+          error: true,
+          actionLabel: 'Retry',
+          onAction: _pickAndUpload,
+        );
+      }
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
@@ -104,6 +112,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
             onPressed: _reload,
             icon: const Icon(Icons.refresh),
           ),
+          const LogoutButton(),
         ],
       ),
       body: Stack(

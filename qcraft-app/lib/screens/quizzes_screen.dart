@@ -102,6 +102,7 @@ class _QuizzesScreenState extends State<QuizzesScreen> {
             onPressed: _reload,
             icon: const Icon(Icons.refresh),
           ),
+          const LogoutButton(),
         ],
       ),
       body: RefreshIndicator(

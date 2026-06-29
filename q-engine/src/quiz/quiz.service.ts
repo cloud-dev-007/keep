@@ -3,6 +3,7 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
@@ -49,13 +50,14 @@ export class QuizService {
     // automatically by Nest — no manual bootstrap required here.
   }
 
-  async getQuizzes(ids?: number[]) {
-    const where = ids && ids.length > 0 ? { id: In(ids) } : {};
+  async getQuizzes(userId: number, ids?: number[]) {
+    const where: any = { user: { id: userId } };
+    if (ids && ids.length > 0) where.id = In(ids);
     try {
       return await this.quizRepository.find({
         where,
         relations: ['questions', 'documents', 'questions.options'],
-        order: { createdAt: 'DESC' },
+        order: { createdAt: 'DESC', questions: { id: 'ASC' } },
       });
     } catch (err: any) {
       this.logger.error(
@@ -66,10 +68,15 @@ export class QuizService {
     }
   }
 
-  async findOne(id: number) {
+  // userId is optional: internal callers omit it; HTTP callers pass it so a
+  // user can only ever touch their own quizzes.
+  async findOne(id: number, userId?: number) {
+    const where: any = { id };
+    if (userId != null) where.user = { id: userId };
     const quiz = await this.quizRepository.findOne({
-      where: { id },
-      relations: ['documents', 'questions'],
+      where,
+      relations: ['documents', 'questions', 'questions.options'],
+      order: { questions: { id: 'ASC' } },
     });
     if (!quiz) {
       throw new NotFoundException(`Quiz with id ${id} not found`);
@@ -103,11 +110,20 @@ export class QuizService {
     }
   }
 
-  async generateQuiz(quizId: number, history?: QuizAttempt) {
-    const quiz = await this.findOne(quizId);
+  async generateQuiz(quizId: number, userId: number, history?: QuizAttempt) {
+    const quiz = await this.findOne(quizId, userId);
 
-    quiz.isAdaptive = history != null;
-    if (history) quiz.difficulty = 1;
+    // An empty POST body arrives as {} (truthy) — only treat it as a real
+    // adaptive attempt when it actually carries prior results. Otherwise the
+    // adaptive branch builds context from an empty weakTopics list, leaving
+    // the LLM with no source material (it then emits generic questions).
+    const isAdaptive =
+      !!history &&
+      ((history.id != null) || ((history.weakTopics?.length ?? 0) > 0));
+    if (!isAdaptive) history = undefined;
+
+    quiz.isAdaptive = isAdaptive;
+    if (isAdaptive) quiz.difficulty = 1;
 
     quiz.title = await this.generateTitle(quiz, history);
     quiz.questions = await this.generateQuestions(quiz, history);
@@ -240,9 +256,9 @@ export class QuizService {
     return weakTopics;
   }
 
-  async evaluateAttempt(attempt: QuizAttemptDto) {
+  async evaluateAttempt(attempt: QuizAttemptDto, userId: number) {
     const quiz = await this.quizRepository.findOne({
-      where: { id: attempt.quizId },
+      where: { id: attempt.quizId, user: { id: userId } },
     });
     if (!quiz) {
       throw new NotFoundException(`Quiz with id ${attempt.quizId} not found`);
@@ -253,6 +269,11 @@ export class QuizService {
       difficulty: attempt.difficulty,
       timeTaken: attempt.timeTaken,
     });
+
+    // Persist first so the row gets an id. evaluateAnswers links each
+    // QuestionAttempt to this attempt via its id — without a saved id TypeORM
+    // throws UpdateValuesMissingError when saving the child attempts.
+    await this.quizAttemptRepository.save(quizAttempt);
 
     quizAttempt.weakTopics = await this.evaluateAnswers(
       quizAttempt,
@@ -281,6 +302,17 @@ export class QuizService {
     return await this.quizAttemptRepository.save(quizAttempt);
   }
 
+  /** Max characters of source context sent to the LLM per request (~3k
+   *  tokens) — keeps requests under tight provider limits (e.g. Groq free
+   *  tier ~6000 tokens/request) and avoids 413 "request too large" on big
+   *  documents. */
+  private static readonly MAX_CONTEXT_CHARS = 12000;
+
+  static capContext(context: string): string {
+    if (context.length <= QuizService.MAX_CONTEXT_CHARS) return context;
+    return context.slice(0, QuizService.MAX_CONTEXT_CHARS);
+  }
+
   async generateAnswer(question: QuizQuestion, quizType: QuizType) {
     const relevantChunks = await this.vectorStore.similaritySearch(
       question.question,
@@ -295,7 +327,9 @@ export class QuizService {
       return true;
     });
 
-    const context = uniqueChunks.map((doc) => doc.pageContent).join('\n\n');
+    const context = QuizService.capContext(
+      uniqueChunks.map((doc) => doc.pageContent).join('\n\n'),
+    );
     const answerTemplate = ChatPromptTemplate.fromTemplate(
       PromptTemplates.generateAnswer,
     );
@@ -384,6 +418,21 @@ export class QuizService {
       context = contexts.join('\n\n---\n\n');
     }
 
+    // No context means the source document hasn't finished embedding yet (it
+    // happens in the background after upload). Generating anyway would leave
+    // the LLM with nothing to work from and produce generic, off-topic
+    // questions, so fail loudly with a retryable message instead.
+    if (!context || context.trim().length === 0) {
+      throw new ServiceUnavailableException(
+        'This document is still being processed. Please wait a few seconds and try again.',
+      );
+    }
+
+    // Cap the context so a large document doesn't blow the LLM's token budget
+    // (Groq's free tier is ~6000 tokens/request). ~12k chars ≈ ~3k tokens,
+    // which leaves ample room for the prompt + the generated questions.
+    context = QuizService.capContext(context);
+
     const template = ChatPromptTemplate.fromTemplate(
       PromptTemplates.generateQuestions,
     );
@@ -399,10 +448,19 @@ export class QuizService {
       },
     });
 
-    const questionList = response
-      .split(/\n?\d+\.\s*/)
+    // Primary: numbered format "1. Question" as instructed in the prompt.
+    // Fallback: plain double-newline separation in case the LLM ignores numbering.
+    let questionList = response
+      .split(/\n?\d+\.\s+/)
       .map((d) => d.trim())
       .filter((d) => d.length > 0);
+
+    if (questionList.length <= 1) {
+      questionList = response
+        .split(/\n{2,}/)
+        .map((d) => d.trim())
+        .filter((d) => d.length > 0);
+    }
 
     if (questionList.length === 0) {
       this.logger.error(
@@ -424,8 +482,10 @@ export class QuizService {
     return this.questionRepository.save(questions);
   }
 
-  async createQuiz(quizSetup: QuizSetupDto) {
+  async createQuiz(quizSetup: QuizSetupDto, userId: number) {
+    // Only the user's own documents are eligible as quiz sources.
     const documents = await this.documentService.getAllDocuments(
+      userId,
       quizSetup.documentIds,
     );
     if (!documents || documents.length === 0) {
@@ -438,9 +498,10 @@ export class QuizService {
       type: quizSetup.type,
       noOfQuestions: quizSetup.questions,
       documents,
+      user: { id: userId },
     });
     await this.quizRepository.save(quiz);
 
-    return quiz.id;
+    return this.findOne(quiz.id, userId);
   }
 }
